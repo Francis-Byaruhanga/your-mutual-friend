@@ -1,0 +1,58 @@
+{
+  "name": "your-mutual-friend",
+  "version": "1.0.0",
+  "description": "Old Mutual 'Your Mutual Friend' hybrid life and health micro insurance USSD prototype built on the Africa's Talking sandbox",
+  "main": "dist/server.js",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:tunnel": "concurrently -k -n server,tunnel -c blue,magenta \"pnpm dev\" \"pnpm tunnel\"",
+    "dev:tunnel:ngrok": "concurrently -k -n server,tunnel -c blue,magenta \"pnpm dev\" \"pnpm tunnel:ngrok\"",
+    "dev:tunnel:cloudflare": "concurrently -k -n server,tunnel -c blue,magenta \"pnpm dev\" \"pnpm tunnel:cloudflare\"",
+    "tunnel": "tsx scripts/tunnel.ts",
+    "tunnel:ngrok": "tsx scripts/tunnel-ngrok.ts",
+    "tunnel:cloudflare": "tsx scripts/tunnel-cloudflare.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "simulate": "tsx scripts/simulate.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write ."
+  },
+  "keywords": [
+    "ussd",
+    "microinsurance",
+    "africa-stalking",
+    "ngrok"
+  ],
+  "author": "Old Mutual Uganda",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.21.0",
+      "onFail": "download"
+    }
+  },
+  "dependencies": {
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.3",
+    "@types/supertest": "^7.2.1",
+    "concurrently": "^10.0.5",
+    "supertest": "^7.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}
