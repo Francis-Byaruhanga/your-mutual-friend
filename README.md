@@ -1,6 +1,6 @@
 # Your Mutual Friend
 
-USSD prototype for Old Mutual's hybrid life and health micro insurance product for
+USSD prototype for Old Mutual's hybrid life and health micro insurance product, aimed at
 historically excluded market segments: retail traders, SME vendors, market vendors,
 boda-boda riders and taxi drivers.
 
@@ -17,50 +17,96 @@ Built on the **Africa's Talking** sandbox, reached over a public HTTPS tunnel.
 | Bronze | 5,000 UGX | up to 2,500,000 UGX |
 
 Pricing lives in one place, [`src/domain/products.ts`](src/domain/products.ts). Bronze was
-corrected to 2,500,000 UGX during the build; the original brief listed the same figure as Silver.
+corrected to 2,500,000 UGX during the build; the original brief listed the same figure as
+Silver.
+
+---
 
 ## Quick start
 
 ```bash
 pnpm install
-cp .env.example .env      # then fill in AT_API_KEY
-pnpm dev:tunnel           # starts the app and the public tunnel together
+cp .env.example .env          # add your AT_API_KEY
+pnpm dev:tunnel:ngrok         # app + public tunnel with a fixed URL
 ```
 
-It prints the public callback URL to paste into the sandbox. Read the tunnel section
-first, because that URL changes every time you restart.
+Then paste the callback URL it prints into your AT sandbox USSD channel.
+
+You can also drive the whole journey in the terminal, with no tunnel and no AT account:
+
+```bash
+pnpm simulate                                        # interactive
+pnpm simulate 1 1 Sarah Nakato 1 22.07.1992 1 9999   # scripted sign up
+pnpm simulate 3                                      # check details
+```
 
 ---
 
 ## Africa's Talking sandbox setup
 
-Do this once, then paste the callback URL your tunnel prints (see the next section).
+### Sandbox short codes are not production short codes
 
-1. **Create a sandbox account** at <https://account.africastalking.com/apps/sandbox>.
-   The username is `sandbox` and the API key is shown on that page.
+This trips people up, so it is worth being explicit. A code like `*384*25894#` is a
+**production** service code. Africa's Talking answers production codes it has no callback
+for with its own placeholder:
 
-2. **Create a USSD channel** at <https://account.africastalking.com/apps/sandbox>
-   (USSD section). Pick any short code, for example `123`, which you dial as `*123#`.
+> You have arrived at Africa's Talking USSD services
 
-3. **Set the callback URL** on that channel to your public URL plus `/ussd`:
+That message means the code is not pointing at this app. It is not a bug in the code
+here, and no amount of dialling differently will change it. The **sandbox only routes
+short codes you create in your own sandbox account**, so the simulator will never reach
+this app through a production code.
+
+For a field test on real handsets you need the production console instead, with this app
+reachable on a stable URL.
+
+### One time setup
+
+1. **Create a sandbox account** at
+   <https://account.africastalking.com/apps/sandbox>. The username is `sandbox`; the API
+   key is shown on that page.
+
+2. **Create a USSD channel**:
+   <https://account.africastalking.com/apps/sandbox/ussd/channel/create>
+
+3. **Set the callback URL** on that channel:
+   <https://account.africastalking.com/apps/sandbox/ussd/channel/callback>
 
    ```
-   https://<your-public-tunnel-url>/ussd
+   https://<your-public-url>/ussd
    ```
 
-4. **Open the simulator** at <https://simulator.africastalking.com>, register a test
-   phone number, and dial your short code.
+   Note the path above is `/ussd/channel/callback`, not `/ussd/channel/create`. Africa's
+   Talking's help article links both steps to the same URL, which is a typo on their
+   side.
 
-Every screen also appears in the sandbox **session details** as the value of the
-`at-ussd-hop-metadata` header, which makes a misbehaving journey easy to trace.
+4. **Open the simulator** at <https://simulator.africastalking.com:1517/> (note the
+   `:1517` port), register a test phone number, and dial the short code from step 2.
+
+### Reading a journey
+
+Every screen is reported in the sandbox session details as the value of the
+`at-ussd-hop-metadata` response header, so you can see exactly which screen a tester's
+session is sitting on:
+
+| Hop | Screen |
+| --- | --- |
+| `welcomeMenu` | main menu |
+| `coverSelect` | the three tiers |
+| `captureFirstName` / `captureSurname` | name capture |
+| `confirmIdentity` | confirm name, step 3 of the brief |
+| `captureDateOfBirth` | date of birth, step 4 |
+| `verifyPolicy` | summary, step 5 |
+| `mobileMoneyPin` | simulated payment |
+| `purchaseComplete` | policy issued |
+| `claimConfirm` / `captureTicketNumber` / `claimSubmitted` | the claims journey |
+| `policyDetails` / `detailsNoPolicy` | check details |
 
 ### Where the API key goes
 
-The key goes in `.env` at the project root, which is gitignored. Only `.env.example`
-is committed.
+In `.env` at the project root, which is gitignored. Only `.env.example` is committed.
 
 ```bash
-# .env
 AT_USERNAME=sandbox
 AT_API_KEY=your_sandbox_key_here
 AT_ENVIRONMENT=sandbox
@@ -68,100 +114,132 @@ AT_ENVIRONMENT=sandbox
 
 Two things worth knowing:
 
-- **The USSD callback itself does not use the API key.** Africa's Talking POSTs to your
-  URL and you reply with a `text/plain` string. No credential is involved.
-- The key is there for the two things still to come: the purchase confirmation **SMS**
-  and the **mobile money STK push**. `src/config.ts` validates it at boot, so a typo
-  surfaces immediately rather than at the first SMS.
+- **The USSD callback does not need the API key.** Africa's Talking POSTs to your URL and
+  you reply with a `text/plain` string. No credential is involved in that hop.
+- The key is there for what is still to come: the purchase confirmation **SMS** and the
+  **mobile money STK push**. `src/config.ts` validates it at boot, so a typo surfaces
+  immediately rather than at the first SMS.
+
+---
 
 ## Public tunnel setup
 
-Africa's Talking reaches your app over the internet, so localhost will not do.
-Pick one of these. All of them need the app running on `PORT` (3000).
+Africa's Talking reaches this app over the internet, so localhost will not do. All of
+these need the app running on `PORT` (3000).
 
-| Command | Hostname | Cost | Needs |
-| --- | --- | --- | --- |
-| `pnpm tunnel:ngrok` | `*.ngrok-free.dev`, yours to choose | free | ngrok account, reachable ngrok edge |
-| `pnpm tunnel:cloudflare` | `ussd.yourdomain.com` | free | a domain you own in Cloudflare |
-| `pnpm tunnel` | random `*.trycloudflare.com` | free | nothing, but changes every restart |
+| Command | Hostname | Needs |
+| --- | --- | --- |
+| `pnpm dev:tunnel:ngrok` | `deafening-generic-chemist.ngrok-free.dev`, fixed | ngrok account |
+| `pnpm dev:tunnel:cloudflare` | `ussd.yourdomain.com`, fixed | a domain you own |
+| `pnpm dev:tunnel` | random `*.trycloudflare.com`, **changes every restart** | nothing |
 
-### A fixed hostname, today, for free
+**Use `pnpm dev:tunnel:ngrok` for anything you intend to repeat.** Only the first two
+give a URL that stays valid between sessions, and Africa's Talking needs the callback to
+be re-registered every time a quick tunnel restarts.
 
-You already have one. A reserved ngrok domain does not change between restarts:
+### ngrok, with a fixed URL
+
+One time:
 
 ```bash
-ngrok config add-authtoken <your-authtoken>   # once
-pnpm dev:tunnel:ngrok                         # or pnpm tunnel:ngrok alongside pnpm dev
+ngrok config add-authtoken <your-authtoken>
+ngrok config check
 ```
 
-Register the callback as `https://<your ngrok domain>/ussd` and it stays valid for
-every future session.
+Set your reserved domain in `.env`:
 
-**The catch is the network, not ngrok.** A quick check on the office network showed
-TLS to ngrok's edge being reset, and cloudflared failing with
-`Allow outbound QUIC traffic on port 7844 or use HTTP2` then `Error 1033`. On a
-hotspot both work. If you need ngrok from the office, put it behind a proxy or just
-use a hotspot for tunnel traffic.
+```bash
+NGROK_DOMAIN=deafening-generic-chemist.ngrok-free.dev
+```
 
-### A fixed hostname you do not have to think about: named Cloudflare tunnel
+Then every session:
 
-A quick tunnel URL is random per restart, which is a poor thing to depend on during
-a field test. A named tunnel gives a hostname that never changes, so the AT callback
-is set once and stays valid. One time setup:
+```bash
+pnpm dev:tunnel:ngrok
+```
 
-1. Own a domain and add it to a free Cloudflare account at
-   <https://dash.cloudflare.com> (Add a site, then change your nameservers at your
-   registrar).
-2. Authenticate and create the tunnel:
+Register the callback once as `https://<NGROK_DOMAIN>/ussd` and it stays valid.
 
-   ```bash
-   cloudflared tunnel login                  # opens a browser, choose your domain
-   cloudflared tunnel create ymf-ussd
-   cloudflared tunnel route dns ymf-ussd ussd.yourdomain.com
-   ```
+### Named Cloudflare tunnel, for a hostname that never changes
 
-3. Put the id and hostname in `.env`:
+Worth setting up before a field test, because a named tunnel does not depend on anyone
+keeping a process alive. You need a domain you own, added to a free Cloudflare account
+at <https://dash.cloudflare.com> (Add a site, then change its nameservers at your
+registrar).
 
-   ```bash
-   CLOUDFLARE_TUNNEL_ID=<id from `cloudflared tunnel list`>
-   CLOUDFLARE_HOSTNAME=ussd.yourdomain.com
-   ```
+```bash
+cloudflared tunnel login                  # opens a browser, choose your domain
+cloudflared tunnel create ymf-ussd
+cloudflared tunnel route dns ymf-ussd ussd.yourdomain.com
+```
 
-4. Check that `~/.cloudflared/ymf-ussd.yml` routes to this app, or the callback
-   silently 404s:
+Then set in `.env`:
 
-   ```yaml
-   tunnel: <your tunnel id>
-   credentials-file: /home/you/.cloudflared/<machine-id>.json
-   ingress:
-     - hostname: ussd.yourdomain.com
-       service: http://localhost:3000
-     - service: http_status:404
-   ```
+```bash
+CLOUDFLARE_TUNNEL_ID=<id from `cloudflared tunnel list`>
+CLOUDFLARE_HOSTNAME=ussd.yourdomain.com
+```
 
-5. `pnpm dev:tunnel:cloudflare`
+Check that `~/.cloudflared/ymf-ussd.yml` points at this app, because a stale ingress rule
+fails as a silent 404 at test time:
 
-Then register `https://ussd.yourdomain.com/ussd` in the AT sandbox and never touch
-it again. `pnpm tunnel:cloudflare` refuses to start if the ingress rule does not
-point at the right port, rather than failing quietly at test time.
+```yaml
+tunnel: <your tunnel id>
+credentials-file: /home/you/.cloudflared/<machine-id>.json
+ingress:
+  - hostname: ussd.yourdomain.com
+    service: http://localhost:3000
+  - service: http_status:404
+```
 
-**Both cloudflared options need outbound TCP and UDP on port 7844.** Check before
-you rely on a network:
+Then `pnpm dev:tunnel:cloudflare`. The script refuses to start if that ingress rule does
+not point at the right port.
+
+### Quick tunnel, for a throwaway demo
+
+No account and nothing to configure, but the URL is random per restart, so the sandbox
+callback has to be re-registered each time. `pnpm dev:tunnel` starts it and prints the
+URL.
+
+---
+
+## Troubleshooting
+
+**Africa's Talking returns its own placeholder message, not our menu.**
+The dialled short code has no callback URL registered. Either it is a production code
+rather than a sandbox one, or the callback on the channel is wrong. See
+[Sandbox short codes](#sandbox-short-codes-are-not-production-short-codes).
+
+**The tunnel URL is in `.env` but the app is served somewhere else.**
+`.env`'s `AT_CALLBACK_BASE_URL` is a record of what you registered in the sandbox, not
+the source of truth. The live tunnel is the source of truth. If they disagree, Africa's
+Talking is probably pointed at the wrong one.
+
+**Two different URLs are printed at startup.**
+`pnpm dev:tunnel` starts the app, which prints `AT_CALLBACK_BASE_URL` from `.env`, and
+separately starts a quick tunnel, which prints its own random URL. Use
+`pnpm dev:tunnel:ngrok` instead and both refer to the same fixed URL.
+
+**`Error 1033` from cloudflared, or `Allow outbound QUIC traffic on port 7844`.**
+The network blocks outbound TCP/UDP on port 7844. Check before relying on a network:
 
 ```bash
 timeout 6 bash -c 'cat </dev/null >/dev/tcp/region1.v2.argotunnel.com/7844' && echo open || echo blocked
 ```
 
-### Quick tunnel, for a demo
+**`http_code=000`, or `Error 522` from a proxy, against an ngrok URL.**
+The network is not reaching ngrok's edge. Seen on an office network while the ngrok
+agent still reported `online` with zero live connections. A mobile hotspot fixed it. This
+is a network problem, not an app problem.
 
-No account, nothing to configure, but the URL changes on every restart so the AT
-callback has to be re-registered each time:
+**`pnpm simulate` starts a server of its own.**
+That is intentional: it starts a temporary in-process instance when nothing is listening
+on `PORT`, so you can use it without `pnpm dev`. If a server is already running it uses
+that one instead.
 
-```bash
-pnpm dev:tunnel
-```
-
-It prints the callback URL to copy.
+**Check Details says no active policy found.**
+Policies live in memory. If the server restarted since someone signed up, their policy
+is gone. This is a prototype limitation, not a fault.
 
 ---
 
@@ -169,69 +247,66 @@ It prints the callback URL to copy.
 
 ### 1. Sign Up
 
-```
-CON Welcome to Your Mutual Friend          CON Select a cover:            CON Enter your first name
-   While in need, your friend indeed    ->   1. Gold ...               ->   ...
-   1. Sign Up                            CON Confirm your details:       CON Enter your surname
-   2. Claim                              ->   Name: John             ->   ...
-   3. Check Details                      CON Enter your date of birth    CON Confirm your details
-                                                                          1. Correct
-                                                                          2. Incorrect
-                                                                          0. Back
-```
+1. Main menu: `1. Sign Up`
+2. Select a cover: Gold, Silver or Bronze
+3. Enter first name, then surname
+4. Confirm details: `1. Correct`, `2. Incorrect`, `0. Back`
+5. Enter date of birth as `dd.mm.yyyy`, the format on the National ID
+6. Verify the summary: `1. Proceed to pay first installment`, `2. Go Back`
+7. Mobile money PIN, simulated
+8. Policy number issued, with the provider list and terms link
 
-...then the summary, the simulated mobile money prompt, and the policy confirmation with
-the provider list and terms link.
-
-The brief jumps from cover selection straight to a pre-filled name, with no screen that
-collects it. Two capture screens were added so the journey is complete and testable.
+The brief moves from cover selection straight to a pre-filled name, with no screen that
+collects it, so two capture screens were added to make the journey complete and testable.
 
 ### 2. Claim
 
-Choose option 2, confirm your details, enter the service ticket number from your
-provider, and receive a claim reference.
+1. Main menu: `2. Claim`
+2. Confirm your details
+3. Enter the service ticket number from your hospital, pharmacy or funeral provider
+4. Claim reference issued
 
 ### 3. Check Details
 
-Choose option 3 for your name, date of birth, policy number, policy type and tenure.
+Main menu: `3. Check Details` for name, date of birth, policy number, policy type and
+tenure so far. Anyone without an active policy is pointed at Sign Up rather than shown an
+empty screen.
 
-Anyone without an active policy gets a clear message pointing them at Sign Up, rather
-than an empty screen.
+### Navigation
+
+Every input screen offers `0. Back`, which returns to the previous screen and re-renders
+it. Data from the abandoned attempt is discarded, so a customer who goes back and picks a
+different tier does not carry a stale date of birth into the new policy.
 
 ---
 
 ## Prototype limitations
 
-These are deliberate, and each is the next thing to build.
+Each of these is the next thing to build.
 
-- **The mobile money PIN is simulated.** The screen accepts any 4 to 6 digits so the
-  journey can be demonstrated. The digits are never stored, logged or forwarded, and
-  the app logs nothing containing them. Before launch this must be replaced by an
-  **Africa's Talking STK push**, where the network collects the PIN on the handset and
-  the application never sees it.
+- **The mobile money PIN is simulated.** Any 4 to 6 digits are accepted so the journey
+  can be demonstrated. The digits are never stored, logged or forwarded. Before launch
+  this must be replaced by an **Africa's Talking STK push**, where the network collects
+  the PIN on the handset and this application never sees it.
 - **No SMS.** The purchase confirmation prints the hospital, pharmacy and funeral
-  provider list plus the terms link directly in the terminal `END` message instead.
-  `purchaseConfirmation()` in [`src/ussd/screens.ts`](src/ussd/screens.ts) holds the
-  text that will become the SMS body.
-- **Policies are held in memory.** Restarting the server loses every issued policy, so
-  Check Details and Claim only work for someone who signed up in the same run. The
-  `PolicyRepository` interface in [`src/domain/repository.ts`](src/domain/repository.ts)
-  is the seam for a real database.
+  provider list plus the terms link in the terminal `END` message instead.
+  `purchaseConfirmation()` in [`src/ussd/screens.ts`](src/ussd/screens.ts) holds the text
+  that becomes the SMS body.
+- **Policies are in memory.** A server restart loses every issued policy, so Check
+  Details and Claim only work for someone who signed up since the last restart. The
+  `PolicyRepository` interface in
+  [`src/domain/repository.ts`](src/domain/repository.ts) is the seam for a real database.
 - **Sessions are in memory too**, with a 30 minute idle TTL. A restart mid-journey
   returns the customer to the main menu rather than guessing where they were.
-- **The callback endpoint is unauthenticated**, which is normal for the sandbox. Add a
-  shared secret before pointing anything at production.
-- **Providers are hard coded** sample names in `screens.ts`. They should come from a
-  lookup keyed on the customer's area.
-- **One policy per phone number** is treated as the active one. Multi-policy holders
-  will need a policy chooser.
-
-### A note on the claims screen
-
-The brief shows a `1. Submit` line under the ticket number input. On a real USSD
-handset the value a customer types *is* the submission, so adding a Submit step would
-mean typing the ticket number twice. The input is taken as the submission and `0. Back`
-is offered instead.
+- **The callback is unauthenticated**, which is normal for the sandbox. Add a shared
+  secret before anything reaches production.
+- **Providers are hard coded** sample names. They should come from a lookup keyed on the
+  customer's area.
+- **One policy per phone number** is treated as the active one, so multi-policy holders
+  will need a chooser.
+- **The claims screen has no Submit step.** The brief shows a `1. Submit` line under the
+  ticket number input, but on a real handset the value typed *is* the submission, so a
+  Submit step would mean typing the ticket number twice. `0. Back` is offered instead.
 
 ---
 
@@ -239,77 +314,88 @@ is offered instead.
 
 ```
 src/
-  server.ts            bootstrap, prints the callback URL
-  app.ts               express app: POST /ussd, GET /health
-  config.ts            .env loading and validation
-  domain/              product, policy, claim, validation, repositories
+  server.ts             bootstrap and startup banner
+  app.ts                express app: POST /ussd, GET /health
+  config.ts             .env loading and validation
+  domain/
+    products.ts         the three tiers, single source of truth
+    policy.ts           issue, tenure, formatting
+    claim.ts            claim submission
+    validation.ts       dates, names, ticket numbers
+    repository.ts       persistence interface + in-memory implementations
   ussd/
-    router.ts          state machine; 0. Back rewinds one screen
-    session.ts         session store with idle TTL
-    reply.ts           CON/END builders and telco-safe character stripping
-    screens.ts         every customer-facing string
-  flows/               root, signup, claim, details
+    router.ts           state machine, 0. Back rewind
+    session.ts          session store with idle TTL
+    reply.ts            CON/END builders, telco-safe character stripping
+    screens.ts          every customer-facing string
+  flows/
+    root.ts signup.ts claim.ts details.ts
 scripts/
-  tunnel.ts            cloudflared quick tunnel, random URL
-  tunnel-ngrok.ts     ngrok with a reserved domain, fixed URL
+  simulate.ts           drive the journey from the terminal
+  tunnel.ts             cloudflared quick tunnel, random URL
+  tunnel-ngrok.ts       ngrok with a reserved domain, fixed URL
   tunnel-cloudflare.ts  named Cloudflare tunnel, fixed URL
-  simulate.ts          drive the journey from the terminal
-tests/                 vitest + supertest
+tests/
+  harness.ts            drives the real app over the real wire format
+  signup.test.ts claim-and-details.test.ts transport.test.ts domain.test.ts
 ```
 
 ### How the router works
 
-Africa's Talking sends the whole session history in `text`, joined with `*`. Rather
-than matching every possible string such as `'1*1*John*Doe*1*05.10.1988'`, the router
-keeps a `state` plus a `stateStack` in the session store. Each state handles one input
-and says where to go next.
+Africa's Talking sends the whole session history in `text`, joined with `*`. Rather than
+matching every possible string such as `'1*1*John*Doe*1*05.10.1988'`, the router keeps a
+`state` and a `stateStack` in the session store. Each state handles one input and says
+where to go next.
 
-`0. Back` pops the state stack and asks the previous state to redraw itself with an
-empty input, so the customer lands on the previous screen instead of replaying what
-they typed. Data belonging to the abandoned attempt is dropped, which is what stops a
-stale date of birth following a customer who changed tier.
+`0. Back` pops the state stack and asks the previous state to redraw itself with an empty
+input, so the customer lands on the previous screen rather than having their input
+replayed.
 
 ### Response rules
 
-Africa's Talking terminates a session on a 4XX or a reply that does not start with
-`CON` or `END`, and expects an answer within 10 seconds. So:
+Africa's Talking terminates a session on a 4XX or a reply that does not begin with `CON`
+or `END`, and expects an answer within 10 seconds. So this app:
 
-- every reply is prefixed with `CON` or `END`, including errors
-- telco-hostile characters (parentheses, smart quotes, em dashes, currency symbols)
-  are stripped centrally in `reply.ts` rather than trusted to each screen
-- `text/plain` is returned with the `at-ussd-hop-metadata` header
+- prefixes every reply with `CON` or `END`, including errors, and never returns a 4XX
+- strips telco-hostile characters (parentheses, smart quotes, em dashes, currency
+  symbols) centrally in `reply.ts` instead of trusting every screen to remember
+- responds in `text/plain` with the `at-ussd-hop-metadata` header
+
+---
 
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | app with reload on `localhost:3000` |
-| `pnpm dev:tunnel` | app and a quick tunnel together |
-| `pnpm tunnel` | just the cloudflared quick tunnel, random URL |
-| `pnpm tunnel:ngrok` | ngrok with your reserved domain, fixed URL |
-| `pnpm tunnel:cloudflare` | named Cloudflare tunnel, fixed URL |
-| `pnpm dev:tunnel:ngrok` | app and ngrok together |
-| `pnpm dev:tunnel:cloudflare` | app and named Cloudflare tunnel together |
+| `pnpm dev:tunnel:ngrok` | app and ngrok, fixed URL |
+| `pnpm dev:tunnel:cloudflare` | app and named Cloudflare tunnel, fixed URL |
+| `pnpm dev:tunnel` | app and a quick tunnel, **URL changes every restart** |
+| `pnpm tunnel:ngrok` | ngrok only |
+| `pnpm tunnel:cloudflare` | named Cloudflare tunnel only |
+| `pnpm tunnel` | quick cloudflared tunnel only |
 | `pnpm simulate` | interactive USSD in the terminal |
-| `pnpm simulate 3` | scripted, e.g. check details |
 | `pnpm test` | vitest suite |
 | `pnpm typecheck` | tsc, no emit |
-| `pnpm lint` | biome check |
-| `pnpm format` | biome check, with fixes |
+| `pnpm lint` / `pnpm format` | biome check, with and without fixes |
 | `pnpm build` / `pnpm start` | compile to `dist/` and run it |
+
+---
 
 ## Tests
 
-100 tests covering all three journeys, the `0. Back` rewind, invalid input on every
-screen, leap days and the eligible age range, duplicate claim tickets, duplicate
-policy numbers, lost sessions, and the transport contract Africa's Talking depends on.
+100 tests covering all three journeys, the `0. Back` rewind, invalid input on every screen,
+leap days and the eligible age range, duplicate claim tickets, duplicate policy numbers,
+lost sessions, and the transport contract Africa's Talking depends on.
 
-They drive the real Express app over the real form-encoded wire format, with an
-injectable clock, so nothing reaches the network.
+They drive the real Express app over the real form-encoded wire format with an injectable
+clock, so nothing touches the network.
 
 ```bash
 pnpm test
 ```
+
+---
 
 ## Documentation
 
